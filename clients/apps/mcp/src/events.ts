@@ -46,6 +46,38 @@ const EventCatalog = Schema.Struct({
   ),
 })
 
+// The backend's payload schemas inline every nested model, which adds up to
+// ~900 KB across the catalog: more than ChatGPT accepts in events/list. Keep
+// the top-level fields and reduce nested models to their type and title.
+const collapseRefs = (
+  node: unknown,
+  defs: Record<string, unknown>,
+): unknown => {
+  if (Array.isArray(node)) {
+    return node.map((item) => collapseRefs(item, defs))
+  }
+  if (!isRecord(node)) {
+    return node
+  }
+  if (typeof node.$ref === 'string') {
+    const title = node.$ref.split('/').at(-1) ?? node.$ref
+    const definition = defs[title]
+    const type =
+      isRecord(definition) && typeof definition.type === 'string'
+        ? definition.type
+        : 'object'
+    return { type, title }
+  }
+  return Object.fromEntries(
+    Object.entries(node)
+      .filter(([key]) => key !== '$defs')
+      .map(([key, value]) => [key, collapseRefs(value, defs)]),
+  )
+}
+
+const trimPayloadSchema = (schema: Record<string, unknown>) =>
+  collapseRefs(schema, isRecord(schema.$defs) ? schema.$defs : {})
+
 const Subscription = Schema.Struct({
   id: Schema.String,
   expires_at: Schema.String,
@@ -128,7 +160,7 @@ export const registerEvents = Effect.fn('registerEvents')(function* (
               description: event.description,
               delivery: ['webhook'],
               inputSchema: event.input_schema,
-              payloadSchema: event.payload_schema,
+              payloadSchema: trimPayloadSchema(event.payload_schema),
             })),
           })),
         ),

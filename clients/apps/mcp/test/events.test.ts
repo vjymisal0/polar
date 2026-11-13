@@ -72,6 +72,50 @@ test('initialize and server/discover advertise events, except on read-only conne
   )
 })
 
+test('events/list reduces nested payload models to their type and title', async () => {
+  apiResponse(
+    Response.json({
+      items: [
+        {
+          name: 'order.paid',
+          description: 'An order was paid.',
+          input_schema: { type: 'object', properties: {} },
+          payload_schema: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              customer: { $ref: '#/$defs/OrderCustomer' },
+              status: { $ref: '#/$defs/OrderStatus' },
+              items: {
+                type: 'array',
+                items: { $ref: '#/$defs/OrderItem' },
+              },
+            },
+            $defs: {
+              OrderCustomer: {
+                type: 'object',
+                properties: { email: { type: 'string' } },
+              },
+              OrderStatus: { type: 'string', enum: ['pending', 'paid'] },
+              OrderItem: { type: 'object', properties: {} },
+            },
+          },
+        },
+      ],
+    }),
+  )
+  const [event] = (await rpc('events/list', {})).result.events
+  expect(event.payloadSchema).toEqual({
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      customer: { type: 'object', title: 'OrderCustomer' },
+      status: { type: 'string', title: 'OrderStatus' },
+      items: { type: 'array', items: { type: 'object', title: 'OrderItem' } },
+    },
+  })
+})
+
 test('events/list returns the backend catalog as webhook events', async () => {
   const inputSchema = { type: 'object', properties: {} }
   const payloadSchema = { type: 'object', properties: { id: {} } }
