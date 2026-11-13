@@ -10,6 +10,10 @@ History up to [1.0.0-alpha.22] is available in the existing GitHub releases.
 
 ## [Unreleased]
 
+### Changed
+
+- A newer `flush()` releases the older ones it outlasts and reports their failures, so concurrent requests keep one waiter instead of each waiting for Polar. A released `flush()` no longer confirms that Polar accepted its events.
+
 ## [1.2.0] - 2026-11-13
 
 - Regenerate 2027-01 version.
