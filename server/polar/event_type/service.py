@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 from uuid import UUID
 
 from pydantic import MISSING
@@ -120,6 +121,14 @@ class EventTypeService:
                 or query_lower in self._resolve_label(s, event_types_by_key).lower()
             ]
 
+        if any(
+            criterion == EventTypesSortProperty.event_type_label
+            for criterion, _ in sorting
+        ):
+            tinybird_stats = self._sort_stats(
+                tinybird_stats, event_types_by_key, sorting
+            )
+
         total_count = len(tinybird_stats)
         start = (pagination.page - 1) * pagination.limit
         end = start + pagination.limit
@@ -139,6 +148,36 @@ class EventTypeService:
             list({s.name for s in stats}), list({s.organization_id for s in stats})
         )
         return self._build_event_types_from_tinybird(stats, event_types_by_key)
+
+    def _sort_stats(
+        self,
+        stats: list[TinybirdEventTypeStats],
+        event_types_by_key: dict[tuple[UUID, str], EventType],
+        sorting: Sequence[Sorting[EventTypesSortProperty]],
+    ) -> list[TinybirdEventTypeStats]:
+        # Labels live in PostgreSQL, so Tinybird can't order by them. Apply every
+        # criterion here, least significant first, relying on sort stability.
+        def sort_key(
+            criterion: EventTypesSortProperty,
+        ) -> Callable[[TinybirdEventTypeStats], Any]:
+            match criterion:
+                case EventTypesSortProperty.event_type_label:
+                    return lambda s: self._resolve_label(
+                        s, event_types_by_key
+                    ).casefold()
+                case EventTypesSortProperty.event_type_name:
+                    return lambda s: s.name
+                case EventTypesSortProperty.occurrences:
+                    return lambda s: s.occurrences
+                case EventTypesSortProperty.first_seen:
+                    return lambda s: s.first_seen
+                case EventTypesSortProperty.last_seen:
+                    return lambda s: s.last_seen
+
+        sorted_stats = list(stats)
+        for criterion, is_desc in reversed(sorting):
+            sorted_stats.sort(key=sort_key(criterion), reverse=is_desc)
+        return sorted_stats
 
     def _resolve_label(
         self,

@@ -280,6 +280,76 @@ class TestListEventTypes:
         AuthSubjectFixture(subject="user", scopes={Scope.events_read}),
         AuthSubjectFixture(subject="organization", scopes={Scope.events_read}),
     )
+    async def test_sorting_by_label(
+        self,
+        client: AsyncClient,
+        organization: Organization,
+        user_organization: UserOrganization,
+        buffered_save_fixture: SaveFixture,
+        flush_tinybird_events: Callable[[], Awaitable[None]],
+    ) -> None:
+        event_type_1 = await create_event_type(
+            buffered_save_fixture,
+            organization=organization,
+            name="aaa.event",
+            label="Zebra Event",
+        )
+        event_type_2 = await create_event_type(
+            buffered_save_fixture,
+            organization=organization,
+            name="zzz.event",
+            label="apple Event",
+        )
+
+        base_time = utc_now()
+        await create_event(
+            buffered_save_fixture,
+            organization=organization,
+            event_type=event_type_1,
+            name="aaa.event",
+            timestamp=base_time - timedelta(hours=1),
+        )
+        await create_event(
+            buffered_save_fixture,
+            organization=organization,
+            event_type=event_type_2,
+            name="zzz.event",
+            timestamp=base_time - timedelta(hours=2),
+        )
+
+        await flush_tinybird_events()
+
+        response = await client.get("/v1/event-types/", params={"sorting": "label"})
+
+        assert response.status_code == 200
+        json = response.json()
+        assert [item["label"] for item in json["items"]] == [
+            "apple Event",
+            "Zebra Event",
+        ]
+
+        response = await client.get("/v1/event-types/", params={"sorting": "-label"})
+
+        assert response.status_code == 200
+        json = response.json()
+        assert [item["label"] for item in json["items"]] == [
+            "Zebra Event",
+            "apple Event",
+        ]
+
+        response = await client.get(
+            "/v1/event-types/", params={"sorting": "label", "limit": 1, "page": 2}
+        )
+
+        assert response.status_code == 200
+        json = response.json()
+        assert json["pagination"]["total_count"] == 2
+        assert [item["label"] for item in json["items"]] == ["Zebra Event"]
+
+    @pytest.mark.auth(
+        AuthSubjectFixture(subject="user", scopes={Scope.events_read}),
+        AuthSubjectFixture(subject="organization", scopes={Scope.events_read}),
+    )
     async def test_pagination(
         self,
         client: AsyncClient,
